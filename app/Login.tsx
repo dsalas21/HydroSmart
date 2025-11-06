@@ -1,6 +1,17 @@
+// app/login.tsx
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert } from "react-native";
-import { Link } from "expo-router";
+import { 
+  View, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  StyleSheet, 
+  ScrollView, 
+  Alert,
+  ActivityIndicator 
+} from "react-native";
+import { Link, router } from "expo-router";
+import { supabase } from "./DB/supabase";
 
 interface LoginData {
   email: string;
@@ -12,6 +23,7 @@ export default function Login() {
     email: "",
     password: "",
   });
+  const [loading, setLoading] = useState(false);
 
   const handleInputChange = (field: keyof LoginData, value: string) => {
     setFormData((prev) => ({
@@ -20,16 +32,71 @@ export default function Login() {
     }));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     // Validación básica
     if (!formData.email || !formData.password) {
       Alert.alert("Error", "Por favor completa todos los campos");
       return;
     }
     
-    // Aquí puedes agregar la lógica de autenticación
-    console.log("Login submitted:", formData);
-    Alert.alert("Éxito", "Inicio de sesión exitoso");
+    setLoading(true);
+    
+    try {
+      // Iniciar sesión con Supabase
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+
+      if (error) {
+        // Manejar errores específicos
+        if (error.message.includes('Invalid login credentials')) {
+          throw new Error('Correo o contraseña incorrectos');
+        }
+        throw error;
+      }
+
+      console.log('✅ Login exitoso:', data.user?.email);
+
+      // Redirigir a la pantalla principal
+      router.replace("/Dashboard");
+      
+    } catch (error: any) {
+      console.error('Error en login:', error);
+      Alert.alert(
+        "Error de inicio de sesión", 
+        error.message || "No se pudo iniciar sesión. Verifica tus credenciales."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!formData.email) {
+      Alert.alert(
+        "Recuperar contraseña",
+        "Por favor ingresa tu correo electrónico primero.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
+        redirectTo: 'https://tuapp.com/reset-password', // Puedes cambiarlo después
+      });
+
+      if (error) throw error;
+
+      Alert.alert(
+        "Correo enviado",
+        "Revisa tu bandeja de entrada para restablecer tu contraseña.",
+        [{ text: "OK" }]
+      );
+    } catch (error: any) {
+      Alert.alert("Error", error.message);
+    }
   };
 
   return (
@@ -50,6 +117,7 @@ export default function Login() {
               placeholderTextColor="#9e9e9e"
               keyboardType="email-address"
               autoCapitalize="none"
+              editable={!loading}
             />
           </View>
 
@@ -62,21 +130,34 @@ export default function Login() {
               placeholder="Ingresa tu contraseña"
               placeholderTextColor="#9e9e9e"
               secureTextEntry
+              editable={!loading}
             />
           </View>
 
-          <TouchableOpacity style={styles.forgotPasswordContainer}>
+          <TouchableOpacity 
+            style={styles.forgotPasswordContainer}
+            onPress={handleForgotPassword}
+            disabled={loading}
+          >
             <Text style={styles.forgotPassword}>¿Olvidaste tu contraseña?</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.btnSubmit} onPress={handleSubmit}>
-            <Text style={styles.btnText}>Iniciar Sesión</Text>
+          <TouchableOpacity 
+            style={[styles.btnSubmit, loading && styles.btnDisabled]} 
+            onPress={handleSubmit}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.btnText}>Iniciar Sesión</Text>
+            )}
           </TouchableOpacity>
 
           <View style={styles.registerLinkContainer}>
             <Text style={styles.registerText}>¿No tienes cuenta? </Text>
             <Link href="/Register" asChild>
-              <TouchableOpacity>
+              <TouchableOpacity disabled={loading}>
                 <Text style={styles.registerLink}>Regístrate</Text>
               </TouchableOpacity>
             </Link>
@@ -161,6 +242,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginTop: 10,
+  },
+  btnDisabled: {
+    opacity: 0.6,
   },
   btnText: {
     color: "#fff",

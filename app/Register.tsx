@@ -1,6 +1,8 @@
+// app/registro.tsx (ACTUALIZADO CON SUPABASE)
 import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert } from "react-native";
-import { Link } from "expo-router";
+import { Link, router } from "expo-router";
+import { supabase } from "./DB/supabase";
 
 interface FormData {
   name: string;
@@ -16,6 +18,7 @@ export default function Registro() {
     password: "",
     confirmPassword: "",
   });
+  const [loading, setLoading] = useState(false);
 
   const handleInputChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({
@@ -24,8 +27,8 @@ export default function Registro() {
     }));
   };
 
-  const handleSubmit = () => {
-    // Validación básica
+  const handleSubmit = async () => {
+    // Validaciones
     if (formData.password !== formData.confirmPassword) {
       Alert.alert("Error", "Las contraseñas no coinciden");
       return;
@@ -34,10 +37,44 @@ export default function Registro() {
       Alert.alert("Error", "La contraseña debe tener mínimo 8 caracteres");
       return;
     }
+    if (!formData.name || !formData.email) {
+      Alert.alert("Error", "Por favor completa todos los campos");
+      return;
+    }
     
-    // Aquí puedes agregar la lógica de registro
-    console.log("Form submitted:", formData);
-    Alert.alert("Éxito", "Cuenta creada exitosamente");
+    setLoading(true);
+    
+    try {
+      // Registro en Supabase Auth
+      const { data, error } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            nombre: formData.name, // Se guardará en el perfil automáticamente
+          },
+        },
+      });
+
+      if (error) throw error;
+
+      Alert.alert(
+        "✅ Registro Exitoso", 
+        "Tu cuenta ha sido creada. Bienvenido a HydroSmart!",
+        [
+          {
+            text: "Continuar",
+            onPress: () => router.replace("/Dashboard"),
+          },
+        ]
+      );
+      
+    } catch (error: any) {
+      console.error('Error en registro:', error);
+      Alert.alert("Error", error.message || "No se pudo crear la cuenta");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -56,6 +93,7 @@ export default function Registro() {
               onChangeText={(value) => handleInputChange("name", value)}
               placeholder="Ingresa tu nombre"
               placeholderTextColor="#9e9e9e"
+              editable={!loading}
             />
           </View>
 
@@ -69,6 +107,7 @@ export default function Registro() {
               placeholderTextColor="#9e9e9e"
               keyboardType="email-address"
               autoCapitalize="none"
+              editable={!loading}
             />
           </View>
 
@@ -81,6 +120,7 @@ export default function Registro() {
               placeholder="Mínimo 8 caracteres"
               placeholderTextColor="#9e9e9e"
               secureTextEntry
+              editable={!loading}
             />
           </View>
 
@@ -93,11 +133,18 @@ export default function Registro() {
               placeholder="Confirma tu contraseña"
               placeholderTextColor="#9e9e9e"
               secureTextEntry
+              editable={!loading}
             />
           </View>
 
-          <TouchableOpacity style={styles.btnSubmit} onPress={handleSubmit}>
-            <Text style={styles.btnText}>Registrarse</Text>
+          <TouchableOpacity 
+            style={[styles.btnSubmit, loading && styles.btnDisabled]} 
+            onPress={handleSubmit}
+            disabled={loading}
+          >
+            <Text style={styles.btnText}>
+              {loading ? "Creando cuenta..." : "Registrarse"}
+            </Text>
           </TouchableOpacity>
 
           <View style={styles.loginLinkContainer}>
@@ -177,6 +224,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginTop: 10,
+  },
+  btnDisabled: {
+    opacity: 0.6,
   },
   btnText: {
     color: "#fff",
