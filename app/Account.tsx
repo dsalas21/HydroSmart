@@ -1,561 +1,389 @@
-// app/perfil.tsx
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
+  TextInput,
   TouchableOpacity,
-  Switch,
   Image,
   Alert,
+  ActivityIndicator,
+  Modal,
 } from "react-native";
 import { router } from "expo-router";
+import { supabase } from "./DB/supabase";
 
-interface UserData {
+interface Perfil {
   nombre: string;
-  email: string;
-  telefono: string;
-  ubicacion: string;
-  nombreFinca: string;
-  fotoPerfil: string;
-  fechaRegistro: string;
+  telefono: string | null;
+  ubicacion: string | null;
+  nombre_finca: string | null;
+  foto_perfil_url: string | null;
+  tema_oscuro: boolean;
+  idioma: string;
 }
 
-interface Estadisticas {
-  cultivosActivos: number;
-  litrosAhorrados: number;
-  diasEnPlataforma: number;
-  cosechasCompletadas: number;
-  horasRiego: number;
-}
+export default function PerfilUsuario() {
+  const [perfil, setPerfil] = useState<Perfil | null>(null);
+  const [editando, setEditando] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-interface ConfigNotificaciones {
-  alertasRiego: boolean;
-  alertasClima: boolean;
-  alertasCriticas: boolean;
-  reportesSemanales: boolean;
-}
+  // Estado para el modal de cambio de contraseña
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [passwords, setPasswords] = useState({ newPassword: "", confirm: "" });
+  const [passwordLoading, setPasswordLoading] = useState(false);
 
-export default function Perfil() {
-  const [userData, setUserData] = useState<UserData>({
-    nombre: "Juan Pérez",
-    email: "juan.perez@email.com",
-    telefono: "+52 123 456 7890",
-    ubicacion: "Guadalajara, Jalisco",
-    nombreFinca: "Huerto Verde",
-    fotoPerfil: "", // URL de la foto
-    fechaRegistro: "2025-09-15",
-  });
+  useEffect(() => {
+    cargarPerfil();
+  }, []);
 
-  const [estadisticas, setEstadisticas] = useState<Estadisticas>({
-    cultivosActivos: 5,
-    litrosAhorrados: 1240,
-    diasEnPlataforma: 50,
-    cosechasCompletadas: 3,
-    horasRiego: 87,
-  });
+  const cargarPerfil = async () => {
+    setLoading(true);
+    try {
+      const user = (await supabase.auth.getUser()).data.user;
+      if (!user) throw new Error("No hay usuario activo");
 
-  const [notificaciones, setNotificaciones] = useState<ConfigNotificaciones>({
-    alertasRiego: true,
-    alertasClima: true,
-    alertasCriticas: true,
-    reportesSemanales: false,
-  });
-
-  const [temaOscuro, setTemaOscuro] = useState(false);
-  const [biometria, setBiometria] = useState(false);
-
-  const toggleNotificacion = (key: keyof ConfigNotificaciones) => {
-    setNotificaciones((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
+      const { data, error } = await supabase
+        .from("perfiles")
+        .select("*")
+        .eq("id", user.id)
+        .single();
+      if (error) throw error;
+      setPerfil(data);
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "No se pudo cargar el perfil.");
+      setPerfil(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const editarPerfil = () => {
-    Alert.alert("Editar Perfil", "Funcionalidad próximamente");
-  };
-
-  const cambiarContrasena = () => {
-    Alert.alert("Cambiar Contraseña", "Funcionalidad próximamente");
-  };
-
-  const cerrarSesion = () => {
-    Alert.alert(
-      "Cerrar Sesión",
-      "¿Estás seguro de que deseas cerrar sesión?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Cerrar Sesión",
-          style: "destructive",
-          onPress: () => router.replace("/Login"),
-        },
-      ]
+  const handleInputChange = (field: keyof Perfil, value: string) => {
+    setPerfil((prev) =>
+      prev ? { ...prev, [field]: value } : prev
     );
   };
 
-  const eliminarCuenta = () => {
-    Alert.alert(
-      "Eliminar Cuenta",
-      "Esta acción es permanente y eliminará todos tus datos. ¿Estás seguro?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: () => {
-            Alert.alert("Cuenta eliminada", "Tu cuenta ha sido eliminada exitosamente");
-            router.replace("/Register");
-          },
-        },
-      ]
-    );
+  const guardarPerfil = async () => {
+    setSaving(true);
+    try {
+      const user = (await supabase.auth.getUser()).data.user;
+      if (!user) throw new Error("No hay usuario activo");
+
+      const { error } = await supabase
+        .from("perfiles")
+        .update({
+          nombre: perfil?.nombre,
+          telefono: perfil?.telefono,
+          ubicacion: perfil?.ubicacion,
+          nombre_finca: perfil?.nombre_finca,
+        })
+        .eq("id", user.id);
+
+      if (error) throw error;
+
+      Alert.alert("Perfil actualizado");
+      setEditando(false);
+      cargarPerfil();
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "No se pudo actualizar el perfil.");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const calcularDiasEnPlataforma = () => {
-    const inicio = new Date(userData.fechaRegistro);
-    const hoy = new Date();
-    return Math.floor((hoy.getTime() - inicio.getTime()) / (1000 * 60 * 60 * 24));
+  const cerrarSesion = async () => {
+    await supabase.auth.signOut();
+    router.replace("/Login");
   };
+
+  // --- Cambiar contraseña
+  const handleChangePassword = async () => {
+    if (!passwords.newPassword || !passwords.confirm) {
+      Alert.alert("Completa ambos campos de contraseña");
+      return;
+    }
+    if (passwords.newPassword.length < 8) {
+      Alert.alert("La contraseña debe tener mínimo 8 caracteres");
+      return;
+    }
+    if (passwords.newPassword !== passwords.confirm) {
+      Alert.alert("Las contraseñas no coinciden");
+      return;
+    }
+    setPasswordLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: passwords.newPassword,
+      });
+      if (error) throw error;
+      setShowChangePassword(false);
+      setPasswords({ newPassword: "", confirm: "" });
+      Alert.alert("Contraseña actualizada", "Tu contraseña fue cambiada correctamente.");
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "No se pudo cambiar la contraseña.");
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4fb0fa" />
+        <Text style={{ marginTop: 18, color: "#999" }}>Cargando perfil...</Text>
+      </View>
+    );
+  }
+
+  if (!perfil) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text>Perfil no disponible</Text>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Header */}
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backButtonText}>←</Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
+          <Text style={styles.icon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Mi Perfil</Text>
-        <View style={{ width: 40 }} />
       </View>
 
-      {/* Información del Usuario */}
       <View style={styles.profileSection}>
-        <View style={styles.avatarContainer}>
-          {userData.fotoPerfil ? (
-            <Image source={{ uri: userData.fotoPerfil }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>{userData.nombre.charAt(0)}</Text>
-            </View>
-          )}
-          <TouchableOpacity style={styles.editAvatarButton}>
-            <Text style={styles.editAvatarIcon}>📷</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.userName}>{userData.nombre}</Text>
-        <Text style={styles.userEmail}>{userData.email}</Text>
-        {userData.nombreFinca && (
-          <Text style={styles.userFinca}>🏡 {userData.nombreFinca}</Text>
+        {/* Foto de perfil */}
+        {perfil.foto_perfil_url ? (
+          <Image source={{ uri: perfil.foto_perfil_url }} style={styles.avatar} />
+        ) : (
+          <View style={styles.avatarPlaceholder}>
+            <Text style={styles.avatarText}>
+              {perfil.nombre?.charAt(0).toUpperCase() || "U"}
+            </Text>
+          </View>
         )}
-        <Text style={styles.userUbicacion}>📍 {userData.ubicacion}</Text>
 
-        <TouchableOpacity style={styles.editProfileButton} onPress={editarPerfil}>
-          <Text style={styles.editProfileButtonText}>✎ Editar Perfil</Text>
+        <TouchableOpacity
+          style={styles.editProfileButton}
+          onPress={() => setEditando((val) => !val)}
+        >
+          <Text style={styles.editProfileButtonText}>
+            {editando ? "Cancelar" : "Editar"}
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Estadísticas */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📊 Mis Estadísticas</Text>
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{estadisticas.cultivosActivos}</Text>
-            <Text style={styles.statLabel}>Cultivos Activos</Text>
-          </View>
+      <View style={styles.form}>
+        <Text style={styles.label}>Nombre</Text>
+        <TextInput
+          style={styles.input}
+          value={perfil.nombre}
+          editable={editando}
+          onChangeText={(v) => handleInputChange("nombre", v)}
+        />
 
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{estadisticas.litrosAhorrados}L</Text>
-            <Text style={styles.statLabel}>Agua Ahorrada</Text>
-          </View>
+        <Text style={styles.label}>Teléfono</Text>
+        <TextInput
+          style={styles.input}
+          value={perfil.telefono || ""}
+          editable={editando}
+          onChangeText={(v) => handleInputChange("telefono", v)}
+          keyboardType="phone-pad"
+        />
 
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{calcularDiasEnPlataforma()}</Text>
-            <Text style={styles.statLabel}>Días Activo</Text>
-          </View>
+        <Text style={styles.label}>Ubicación</Text>
+        <TextInput
+          style={styles.input}
+          value={perfil.ubicacion || ""}
+          editable={editando}
+          onChangeText={(v) => handleInputChange("ubicacion", v)}
+        />
 
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{estadisticas.cosechasCompletadas}</Text>
-            <Text style={styles.statLabel}>Cosechas</Text>
-          </View>
+        <Text style={styles.label}>Nombre de la finca o huerto</Text>
+        <TextInput
+          style={styles.input}
+          value={perfil.nombre_finca || ""}
+          editable={editando}
+          onChangeText={(v) => handleInputChange("nombre_finca", v)}
+        />
 
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{estadisticas.horasRiego}h</Text>
-            <Text style={styles.statLabel}>Riego Auto</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Notificaciones */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔔 Notificaciones</Text>
-        <View style={styles.settingsCard}>
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={styles.settingLabel}>Alertas de riego</Text>
-              <Text style={styles.settingDescription}>
-                Notifica cuando se active el riego
-              </Text>
-            </View>
-            <Switch
-              value={notificaciones.alertasRiego}
-              onValueChange={() => toggleNotificacion("alertasRiego")}
-              trackColor={{ false: "#ccc", true: "#4fb0fa" }}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={styles.settingLabel}>Alertas de clima</Text>
-              <Text style={styles.settingDescription}>
-                Lluvia, heladas y temperaturas extremas
-              </Text>
-            </View>
-            <Switch
-              value={notificaciones.alertasClima}
-              onValueChange={() => toggleNotificacion("alertasClima")}
-              trackColor={{ false: "#ccc", true: "#4fb0fa" }}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={styles.settingLabel}>Alertas críticas</Text>
-              <Text style={styles.settingDescription}>
-                Fallas del sistema y sensores
-              </Text>
-            </View>
-            <Switch
-              value={notificaciones.alertasCriticas}
-              onValueChange={() => toggleNotificacion("alertasCriticas")}
-              trackColor={{ false: "#ccc", true: "#4fb0fa" }}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={styles.settingLabel}>Reportes semanales</Text>
-              <Text style={styles.settingDescription}>
-                Resumen de actividad cada semana
-              </Text>
-            </View>
-            <Switch
-              value={notificaciones.reportesSemanales}
-              onValueChange={() => toggleNotificacion("reportesSemanales")}
-              trackColor={{ false: "#ccc", true: "#4fb0fa" }}
-            />
-          </View>
-        </View>
-      </View>
-
-      {/* Preferencias */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>⚙️ Preferencias</Text>
-        <View style={styles.settingsCard}>
-          <TouchableOpacity style={styles.settingRowClickable}>
-            <Text style={styles.settingLabel}>Idioma</Text>
-            <Text style={styles.settingValue}>Español ›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.settingRowClickable}>
-            <Text style={styles.settingLabel}>Unidades</Text>
-            <Text style={styles.settingValue}>Métrico ›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.settingRowClickable}>
-            <Text style={styles.settingLabel}>Temperatura</Text>
-            <Text style={styles.settingValue}>Celsius (°C) ›</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Seguridad */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔐 Seguridad</Text>
-        <View style={styles.settingsCard}>
-          <TouchableOpacity style={styles.settingRowClickable} onPress={cambiarContrasena}>
-            <Text style={styles.settingLabel}>Cambiar contraseña</Text>
-            <Text style={styles.settingArrow}>›</Text>
-          </TouchableOpacity>
-
-          <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Autenticación biométrica</Text>
-            <Switch
-              value={biometria}
-              onValueChange={setBiometria}
-              trackColor={{ false: "#ccc", true: "#4fb0fa" }}
-            />
-          </View>
-
-          <TouchableOpacity style={styles.settingRowClickable}>
-            <Text style={styles.settingLabel}>Dispositivos conectados</Text>
-            <Text style={styles.settingArrow}>›</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Sensores y Conexiones */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📡 Sensores y Conexiones</Text>
-        <View style={styles.settingsCard}>
-          <TouchableOpacity style={styles.settingRowClickable}>
-            <View>
-              <Text style={styles.settingLabel}>Estado de conexión</Text>
-              <Text style={styles.connectionStatus}>● Conectado</Text>
-            </View>
-            <Text style={styles.settingArrow}>›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.settingRowClickable}>
-            <Text style={styles.settingLabel}>Sensores conectados</Text>
-            <Text style={styles.settingValue}>3 activos ›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.settingRowClickable}>
-            <Text style={styles.settingLabel}>Sincronización de datos</Text>
-            <Text style={styles.settingArrow}>›</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-      {/* Acciones de Cuenta */}
-      <View style={styles.section}>
-        <TouchableOpacity style={styles.logoutButton} onPress={cerrarSesion}>
-          <Text style={styles.logoutButtonText}>🚪 Cerrar Sesión</Text>
+        {/* Botón para el modal de contraseña */}
+        <TouchableOpacity
+          style={styles.passwordButton}
+          onPress={() => setShowChangePassword(true)}
+        >
+          <Text style={styles.passwordButtonText}>Cambiar contraseña</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.deleteButton} onPress={eliminarCuenta}>
-          <Text style={styles.deleteButtonText}>🗑️ Eliminar Cuenta</Text>
+        {(editando || saving) && (
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.btnDisabled]}
+            onPress={guardarPerfil}
+            disabled={saving}
+          >
+            <Text style={styles.saveButtonText}>{saving ? "Guardando..." : "Guardar cambios"}</Text>
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity
+          style={styles.cerrarSesionButton}
+          onPress={cerrarSesion}
+        >
+          <Text style={styles.cerrarSesionButtonText}>Cerrar sesión</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={{ height: 40 }} />
+      {/* Modal de cambiar contraseña */}
+      <Modal
+        visible={showChangePassword}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowChangePassword(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Cambiar Contraseña</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Nueva contraseña"
+              placeholderTextColor="#aaa"
+              secureTextEntry
+              value={passwords.newPassword}
+              onChangeText={(v) => setPasswords((p) => ({ ...p, newPassword: v }))}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Confirmar contraseña"
+              placeholderTextColor="#aaa"
+              secureTextEntry
+              value={passwords.confirm}
+              onChangeText={(v) => setPasswords((p) => ({ ...p, confirm: v }))}
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancel}
+                onPress={() => setShowChangePassword(false)}
+                disabled={passwordLoading}
+              >
+                <Text style={{ color: "#4fb0fa", fontWeight: "600" }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSave}
+                disabled={passwordLoading}
+                onPress={handleChangePassword}
+              >
+                <Text style={{ color: "#fff", fontWeight: "700" }}>
+                  {passwordLoading ? "Guardando..." : "Guardar"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
-  header: {
-    backgroundColor: "#fff",
-    paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
-  },
-  backButton: {
-    width: 40,
-  },
-  backButtonText: {
-    fontSize: 28,
-    color: "#4fb0fa",
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#000",
-  },
-  profileSection: {
-    backgroundColor: "#fff",
-    alignItems: "center",
-    paddingVertical: 30,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
-  },
-  avatarContainer: {
-    position: "relative",
-    marginBottom: 15,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-  },
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  contentContainer: { padding: 20 },
+  header: { flexDirection: "row", alignItems: "center", marginTop: 30, marginBottom: 16 },
+  icon: { fontSize: 34, color: "#4fb0fa" },
+  headerTitle: { fontSize: 22, fontWeight: "700", color: "#000", flex: 1 },
+  profileSection: { alignItems: "center", marginBottom: 30 },
+  avatar: { width: 100, height: 100, borderRadius: 50, marginBottom: 16 },
   avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "#4fb0fa",
-    justifyContent: "center",
-    alignItems: "center",
+    width: 100, height: 100, backgroundColor: "#4fb0fa", borderRadius: 50,
+    alignItems: "center", justifyContent: "center", marginBottom: 16,
   },
-  avatarText: {
-    fontSize: 40,
-    fontWeight: "900",
-    color: "#fff",
-  },
-  editAvatarButton: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    backgroundColor: "#fff",
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  editAvatarIcon: {
-    fontSize: 16,
-  },
-  userName: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 5,
-  },
-  userEmail: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 5,
-  },
-  userFinca: {
-    fontSize: 14,
-    color: "#4fb0fa",
-    marginBottom: 3,
-  },
-  userUbicacion: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 15,
-  },
+  avatarText: { color: "#fff", fontSize: 40, fontWeight: "bold" },
   editProfileButton: {
-    paddingHorizontal: 20,
+    marginTop: 2,
+    paddingHorizontal: 24,
     paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#4fb0fa",
+    backgroundColor: "#4fb0fa",
+    borderRadius: 16,
   },
-  editProfileButtonText: {
-    color: "#4fb0fa",
-    fontSize: 14,
-    fontWeight: "600",
+  editProfileButtonText: { color: "#fff", fontWeight: "600" },
+  form: { marginTop: 20 },
+  label: { fontSize: 13, color: "#4fb0fa", marginBottom: 4, marginTop: 16, fontWeight: "600" },
+  input: {
+    width: "100%", height: 44, borderWidth: 1, borderColor: "#4fb0fa",
+    borderRadius: 10, paddingHorizontal: 14, fontSize: 16, color: "#000", backgroundColor: "#fff",
+    marginBottom: 0,
   },
-  section: {
+  passwordButton: {
+    marginTop: 32,
+    alignSelf: "flex-start",
+    paddingVertical: 9,
     paddingHorizontal: 20,
-    marginTop: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 12,
-  },
-  statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  statCard: {
     backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    flex: 1,
-    minWidth: "30%",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    borderColor: "#4fb0fa",
+    borderWidth: 1,
+    borderRadius: 18,
+    marginBottom: 0,
   },
-  statValue: {
-    fontSize: 24,
-    fontWeight: "900",
+  passwordButtonText: {
     color: "#4fb0fa",
-    marginBottom: 5,
+    fontWeight: "600",
+    fontSize: 15,
   },
-  statLabel: {
-    fontSize: 11,
-    color: "#666",
+  saveButton: {
+    width: "100%", height: 48, marginTop: 24, backgroundColor: "#51cf66", borderRadius: 12,
+    justifyContent: "center", alignItems: "center",
+  },
+  btnDisabled: { opacity: 0.55 },
+  saveButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  cerrarSesionButton: {
+    width: "100%", height: 48, backgroundColor: "#fff", borderRadius: 12, marginTop: 24,
+    borderWidth: 1, borderColor: "#ff6b6b", justifyContent: "center", alignItems: "center"
+  },
+  cerrarSesionButtonText: { color: "#ff6b6b", fontWeight: "bold", fontSize: 16 },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f5f5f5" },
+  // ---- Modal styles ---
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.23)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalCard: {
+    width: "85%",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.13,
+    shadowRadius: 9,
+    elevation: 12,
+  },
+  modalTitle: {
+    fontSize: 19,
+    fontWeight: "700",
+    color: "#4fb0fa",
+    marginBottom: 16,
     textAlign: "center",
   },
-  settingsCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  settingRow: {
+  modalButtons: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    marginTop: 18,
+    justifyContent: "flex-end",
   },
-  settingRowClickable: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+  modalCancel: {
+    marginRight: 13,
+    backgroundColor: "#f7f7fa",
+    borderRadius: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
-  settingLabel: {
-    fontSize: 15,
-    color: "#000",
-    fontWeight: "500",
-  },
-  settingDescription: {
-    fontSize: 12,
-    color: "#999",
-    marginTop: 2,
-  },
-  settingValue: {
-    fontSize: 14,
-    color: "#666",
-  },
-  settingArrow: {
-    fontSize: 20,
-    color: "#ccc",
-  },
-  connectionStatus: {
-    fontSize: 12,
-    color: "#51cf66",
-    marginTop: 2,
-  },
-  logoutButton: {
+  modalSave: {
     backgroundColor: "#4fb0fa",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  logoutButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  deleteButton: {
-    backgroundColor: "#fff",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#ff6b6b",
-  },
-  deleteButtonText: {
-    color: "#ff6b6b",
-    fontSize: 16,
-    fontWeight: "700",
+    borderRadius: 8,
+    paddingHorizontal: 23,
+    paddingVertical: 10,
   },
 });

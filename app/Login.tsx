@@ -82,21 +82,7 @@ export default function Login() {
       return;
     }
 
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
-        redirectTo: 'https://tuapp.com/reset-password', // Puedes cambiarlo después
-      });
 
-      if (error) throw error;
-
-      Alert.alert(
-        "Correo enviado",
-        "Revisa tu bandeja de entrada para restablecer tu contraseña.",
-        [{ text: "OK" }]
-      );
-    } catch (error: any) {
-      Alert.alert("Error", error.message);
-    }
   };
 
   return (

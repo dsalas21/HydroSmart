@@ -1,50 +1,122 @@
-import React, { useState } from "react";
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  FlatList, 
-  ScrollView 
+import React, { useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+  RefreshControl,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
-import { Link, router } from "expo-router";
+import { router } from "expo-router";
+import { supabase } from "./DB/supabase";
 
 interface Cultivo {
   id: string;
   nombre: string;
   tipo: string;
-  fechaSiembra: string;
-  estadoRiego: "activo" | "pausado" | "programado";
-  humedad: number;
-  temperatura: number;
-  diasHastaCosecha: number;
+  fecha_siembra: string;
+  estado: "activo" | "pausado" | "programado" | string;
+  humedad?: number; // Campo para simulación rápida de tabla; los datos reales vendrán de sensores
+  temperatura?: number;
+  dias_hasta_cosecha?: number;
 }
 
 export default function MisCultivos() {
-  const [cultivos, setCultivos] = useState<Cultivo[]>([
-    {
-      id: "1",
-      nombre: "Tomates Cherry",
-      tipo: "Tomate",
-      fechaSiembra: "2025-10-15",
-      estadoRiego: "activo",
-      humedad: 65,
-      temperatura: 24,
-      diasHastaCosecha: 45,
-    },
-    {
-      id: "2",
-      nombre: "Lechugas Orgánicas",
-      tipo: "Lechuga",
-      fechaSiembra: "2025-10-20",
-      estadoRiego: "programado",
-      humedad: 70,
-      temperatura: 22,
-      diasHastaCosecha: 25,
-    },
-  ]);
+  const [cultivos, setCultivos] = useState<Cultivo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const getEstadoColor = (estado: string) => {
+  useEffect(() => {
+    cargarCultivos();
+  }, []);
+
+  const cargarCultivos = async () => {
+    setLoading(true);
+    try {
+      const user = (await supabase.auth.getUser()).data.user;
+      if (!user) throw new Error("No hay usuario autentificado");
+
+      const { data, error } = await supabase
+        .from("cultivos")
+        .select("*")
+        .eq("usuario_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setCultivos(data as Cultivo[]);
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "No se pudieron cargar los cultivos.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await cargarCultivos();
+  };
+
+  const eliminarCultivo = async (id: string) => {
+    Alert.alert(
+      "Eliminar Cultivo",
+      "¿Estás seguro de que quieres eliminar este cultivo?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: async () => {
+            const { error } = await supabase.from("cultivos").delete().eq("id", id);
+            if (error) {
+              Alert.alert("Error", "No se pudo eliminar.");
+            } else {
+              setCultivos(cultivos.filter((c) => c.id !== id));
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const renderCultivo = ({ item }: { item: Cultivo }) => (
+    <TouchableOpacity
+      style={styles.cultivoCard}
+      onPress={() => router.push(`./Crop/${item.id}`)}
+    >
+      <View style={styles.cardHeader}>
+        <Text style={styles.cultivoNombre}>{item.nombre}</Text>
+        <View style={[styles.estadoBadge, { backgroundColor: getEstadoColor(item.estado) }]}>
+          <Text style={styles.estadoTexto}>{getEstadoTexto(item.estado)}</Text>
+        </View>
+      </View>
+      <Text style={styles.cultivoTipo}>{item.tipo}</Text>
+      <View style={styles.infoRow}>
+        <View style={styles.infoItem}>
+          <Text style={styles.infoLabel}>Siembra</Text>
+          <Text style={styles.infoValue}>
+            {new Date(item.fecha_siembra).toLocaleDateString("es-ES")}
+          </Text>
+        </View>
+        <View style={styles.infoItem}>
+          <Text style={styles.infoLabel}>Cosecha estimada</Text>
+          <Text style={styles.infoValue}>
+            {item.dias_hasta_cosecha ? `${item.dias_hasta_cosecha} días` : "N/A"}
+          </Text>
+        </View>
+      </View>
+      <TouchableOpacity
+        style={styles.deleteBtn}
+        onPress={() => eliminarCultivo(item.id)}
+      >
+        <Text style={styles.deleteBtnText}>🗑️ Eliminar</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+
+  function getEstadoColor(estado: string) {
     switch (estado) {
       case "activo":
         return "#4fb0fa";
@@ -55,117 +127,45 @@ export default function MisCultivos() {
       default:
         return "#999";
     }
-  };
+  }
 
-  const getEstadoTexto = (estado: string) => {
+  function getEstadoTexto(estado: string) {
     switch (estado) {
       case "activo":
-        return "Riego Activo";
+        return "Activo";
       case "pausado":
         return "Pausado";
       case "programado":
         return "Programado";
       default:
-        return "Desconocido";
+        return `${(estado || "").charAt(0).toUpperCase() + (estado || "").slice(1)}`;
     }
-  };
-
-  const renderCultivo = ({ item }: { item: Cultivo }) => (
-    <TouchableOpacity 
-      style={styles.cultivoCard}
-   //   onPress={() => router.push(`/Crop/${item.id}`)}
-    >
-      <View style={styles.cardHeader}>
-        <Text style={styles.cultivoNombre}>{item.nombre}</Text>
-        <View style={[styles.estadoBadge, { backgroundColor: getEstadoColor(item.estadoRiego) }]}>
-          <Text style={styles.estadoTexto}>{getEstadoTexto(item.estadoRiego)}</Text>
-        </View>
-      </View>
-
-      <Text style={styles.cultivoTipo}>{item.tipo}</Text>
-      
-      <View style={styles.infoRow}>
-        <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>💧 Humedad</Text>
-          <Text style={styles.infoValue}>{item.humedad}%</Text>
-        </View>
-        
-        <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>🌡️ Temp.</Text>
-          <Text style={styles.infoValue}>{item.temperatura}°C</Text>
-        </View>
-        
-        <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>📅 Cosecha</Text>
-          <Text style={styles.infoValue}>{item.diasHastaCosecha}d</Text>
-        </View>
-      </View>
-
-      <Text style={styles.fechaSiembra}>
-        Sembrado: {new Date(item.fechaSiembra).toLocaleDateString('es-ES')}
-      </Text>
-    </TouchableOpacity>
-  );
+  }
 
   return (
     <View style={styles.container}>
-      {/* Header con botones de navegación */}
+      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>HydroSmart</Text>
           <Text style={styles.headerSubtitle}>Mis Cultivos</Text>
         </View>
-        
         <View style={styles.headerButtons}>
-          {/* Botón de Clima */}
-          <TouchableOpacity 
-            style={styles.headerButton}
-            onPress={() => router.push('/WeatherModule')}
-          >
+          <TouchableOpacity style={styles.headerButton} onPress={() => router.push("./WeatherModule")}>
             <Text style={styles.headerButtonIcon}>🌤️</Text>
           </TouchableOpacity>
-
-          {/* Botón de Perfil */}
-          <TouchableOpacity 
-            style={styles.headerButton}
-            onPress={() => router.push('/Account')}
-          >
+          <TouchableOpacity style={styles.headerButton} onPress={() => router.push("./Account")}>
             <Text style={styles.headerButtonIcon}>👤</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Widget de Clima Rápido */}
-      <TouchableOpacity 
-        style={styles.weatherWidget}
-        onPress={() => router.push('/WeatherModule')}
-      >
-        <View style={styles.weatherWidgetLeft}>
-          <Text style={styles.weatherWidgetIcon}>☀️</Text>
-          <View>
-            <Text style={styles.weatherWidgetTemp}>24°C</Text>
-            <Text style={styles.weatherWidgetCondition}>Parcialmente nublado</Text>
-          </View>
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color="#4fb0fa" />
+          <Text style={{ marginTop: 16, color: "#666" }}>Cargando cultivos...</Text>
         </View>
-        
-        <View style={styles.weatherWidgetRight}>
-          <View style={styles.weatherWidgetDetail}>
-            <Text style={styles.weatherWidgetDetailLabel}>💧 Humedad</Text>
-            <Text style={styles.weatherWidgetDetailValue}>65%</Text>
-          </View>
-          <View style={styles.weatherWidgetDetail}>
-            <Text style={styles.weatherWidgetDetailLabel}>🌧️ Lluvia</Text>
-            <Text style={styles.weatherWidgetDetailValue}>20%</Text>
-          </View>
-        </View>
-
-        <View style={styles.weatherWidgetArrow}>
-          <Text style={styles.arrowIcon}>›</Text>
-        </View>
-      </TouchableOpacity>
-
-      {/* Lista de cultivos */}
-      {cultivos.length === 0 ? (
+      ) : cultivos.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>🌱</Text>
           <Text style={styles.emptyTitle}>No tienes cultivos</Text>
@@ -180,13 +180,16 @@ export default function MisCultivos() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
         />
       )}
 
-      {/* Botón flotante para agregar cultivo */}
-      <TouchableOpacity 
+      {/* Botón para agregar nuevo cultivo */}
+      <TouchableOpacity
         style={styles.fabButton}
-        onPress={() => router.push('/AddCrop')}
+        onPress={() => router.push("./AddCrop")}
       >
         <Text style={styles.fabIcon}>+</Text>
       </TouchableOpacity>
@@ -195,10 +198,7 @@ export default function MisCultivos() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
   header: {
     backgroundColor: "#fff",
     paddingTop: 60,
@@ -210,20 +210,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: "900",
-    color: "#000",
-    marginBottom: 5,
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: "#666",
-  },
-  headerButtons: {
-    flexDirection: "row",
-    gap: 10,
-  },
+  headerTitle: { fontSize: 28, fontWeight: "900", color: "#000", marginBottom: 5 },
+  headerSubtitle: { fontSize: 16, color: "#666" },
+  headerButtons: { flexDirection: "row", gap: 10 },
   headerButton: {
     width: 44,
     height: 44,
@@ -231,75 +220,15 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
+    marginLeft: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  headerButtonIcon: {
-    fontSize: 22,
-  },
-  weatherWidget: {
-    backgroundColor: "#fff",
-    margin: 20,
-    marginBottom: 10,
-    padding: 20,
-    borderRadius: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  weatherWidgetLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  weatherWidgetIcon: {
-    fontSize: 48,
-    marginRight: 12,
-  },
-  weatherWidgetTemp: {
-    fontSize: 24,
-    fontWeight: "900",
-    color: "#000",
-  },
-  weatherWidgetCondition: {
-    fontSize: 12,
-    color: "#666",
-  },
-  weatherWidgetRight: {
-    marginLeft: 16,
-  },
-  weatherWidgetDetail: {
-    marginBottom: 8,
-  },
-  weatherWidgetDetailLabel: {
-    fontSize: 11,
-    color: "#999",
-  },
-  weatherWidgetDetailValue: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#000",
-  },
-  weatherWidgetArrow: {
-    marginLeft: 12,
-  },
-  arrowIcon: {
-    fontSize: 28,
-    color: "#4fb0fa",
-    fontWeight: "300",
-  },
-  listContent: {
-    padding: 20,
-    paddingTop: 10,
-    paddingBottom: 100,
-  },
+  headerButtonIcon: { fontSize: 22 },
+  listContent: { padding: 20, paddingBottom: 120, paddingTop: 10 },
   cultivoCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -311,78 +240,22 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  cultivoNombre: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#000",
-    flex: 1,
-  },
-  estadoBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  estadoTexto: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  cultivoTipo: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 16,
-  },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  infoItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  infoLabel: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 4,
-  },
-  infoValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#000",
-  },
-  fechaSiembra: {
-    fontSize: 12,
-    color: "#999",
-    fontStyle: "italic",
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 40,
-  },
-  emptyIcon: {
-    fontSize: 80,
-    marginBottom: 20,
-  },
-  emptyTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 10,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-  },
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  cultivoNombre: { fontSize: 20, fontWeight: "700", color: "#000", flex: 1 },
+  estadoBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  estadoTexto: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  cultivoTipo: { fontSize: 14, color: "#666", marginBottom: 16 },
+  infoRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
+  infoItem: { flex: 1, alignItems: "center" },
+  infoLabel: { fontSize: 12, color: "#666", marginBottom: 4 },
+  infoValue: { fontSize: 14, color: "#000", fontWeight: "600" },
+  fechaSiembra: { fontSize: 12, color: "#999", fontStyle: "italic" },
+  deleteBtn: { marginTop: 10, alignSelf: "flex-end" },
+  deleteBtnText: { color: "#ff6b6b", fontWeight: "700" },
+  emptyState: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 40, marginTop: 60 },
+  emptyIcon: { fontSize: 80, marginBottom: 20 },
+  emptyTitle: { fontSize: 22, fontWeight: "700", color: "#000", marginBottom: 10 },
+  emptyText: { fontSize: 16, color: "#666", textAlign: "center" },
   fabButton: {
     position: "absolute",
     right: 20,
@@ -399,9 +272,5 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  fabIcon: {
-    fontSize: 32,
-    color: "#fff",
-    fontWeight: "300",
-  },
+  fabIcon: { fontSize: 32, color: "#fff", fontWeight: "300" },
 });

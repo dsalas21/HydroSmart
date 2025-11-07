@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -9,21 +9,57 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { supabase } from "./DB/supabase";
 
-export default function AgregarCultivo() {
+export default function EditarCultivo() {
+  const { id } = useLocalSearchParams<{ id?: string }>();
   const [formData, setFormData] = useState({
     nombre: "",
     tipo: "",
     variedad: "",
-    fecha_siembra: new Date().toISOString().split("T")[0],
+    fecha_siembra: "",
     ubicacion: "",
     dias_hasta_cosecha: "",
     etapa_actual: "Germinación",
     estado: "activo",
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    cargarCultivo();
+  }, [id]);
+
+  const cargarCultivo = async () => {
+    if (!id) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("cultivos")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (error) throw error;
+
+      setFormData({
+        nombre: data.nombre || "",
+        tipo: data.tipo || "",
+        variedad: data.variedad || "",
+        fecha_siembra: data.fecha_siembra || "",
+        ubicacion: data.ubicacion || "",
+        dias_hasta_cosecha: data.dias_hasta_cosecha?.toString() || "",
+        etapa_actual: data.etapa_actual || "Germinación",
+        estado: data.estado || "activo",
+      });
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "No se pudo cargar el cultivo.");
+      router.back();
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({
@@ -37,19 +73,15 @@ export default function AgregarCultivo() {
       Alert.alert("Completa los campos obligatorios (*)");
       return;
     }
-    setLoading(true);
+    setSubmitting(true);
 
     try {
-      // Obtiene usuario logueado
-      const user = (await supabase.auth.getUser()).data.user;
-      if (!user) throw new Error("No se encontró el usuario actual.");
-
-      const { error } = await supabase.from("cultivos").insert([
-        {
-          usuario_id: user.id,
+      const { error } = await supabase
+        .from("cultivos")
+        .update({
           nombre: formData.nombre,
           tipo: formData.tipo,
-          variedad: formData.variedad || null,
+          variedad: formData.variedad,
           fecha_siembra: formData.fecha_siembra,
           ubicacion: formData.ubicacion || null,
           dias_hasta_cosecha: formData.dias_hasta_cosecha
@@ -57,20 +89,29 @@ export default function AgregarCultivo() {
             : null,
           etapa_actual: formData.etapa_actual,
           estado: formData.estado,
-        },
-      ]);
+        })
+        .eq("id", id);
 
       if (error) throw error;
 
-      Alert.alert("Éxito", "Cultivo agregado correctamente", [
+      Alert.alert("Éxito", "El cultivo fue actualizado correctamente", [
         { text: "OK", onPress: () => router.replace("./Dashboard") },
       ]);
     } catch (err: any) {
-      Alert.alert("Error", err.message || "No se pudo agregar el cultivo.");
+      Alert.alert("Error", err.message || "No se pudo actualizar el cultivo.");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f5f5f5" }}>
+        <ActivityIndicator size="large" color="#4fb0fa" />
+        <Text style={{ marginTop: 18, color: "#999" }}>Cargando cultivo...</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
@@ -78,7 +119,7 @@ export default function AgregarCultivo() {
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
           <Text style={styles.headerIcon}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Agregar Cultivo</Text>
+        <Text style={styles.headerTitle}>Editar Cultivo</Text>
       </View>
 
       <View style={styles.form}>
@@ -161,14 +202,14 @@ export default function AgregarCultivo() {
         </View>
 
         <TouchableOpacity
-          style={[styles.btnSubmit, loading && styles.btnDisabled]}
+          style={[styles.btnSubmit, submitting && styles.btnDisabled]}
           onPress={handleSubmit}
-          disabled={loading}
+          disabled={submitting}
         >
-          {loading ? (
+          {submitting ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.btnSubmitText}>Guardar Cultivo</Text>
+            <Text style={styles.btnSubmitText}>Actualizar</Text>
           )}
         </TouchableOpacity>
       </View>
